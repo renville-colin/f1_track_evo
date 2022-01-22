@@ -401,9 +401,10 @@ ad_quali_2021_l <- get_driver_data(season = '2021',
   # creating fast lap detect logic, with a counter for cumulative fast laps / session (can remove)
   mutate(scale_LapTime4 = scale(LapTime4)) %>%
   # removing non-existant / faux laps
-  filter(!(Driver == "HAM" & LapNumber == 19)) %>% # we know Lewis' 19th lap was just him driving to the grid
-  filter(!(TrackStatus == "5" & is.na(LapTime5))) %>% # no evidence that STR lap 7 exists on video
+  # filter(!(Driver == "HAM" & LapNumber == 19)) %>% # we know Lewis' 19th lap was just him driving to the grid
+  # filter(!(TrackStatus == "5" & is.na(LapTime5))) %>% # no evidence that STR lap 7 exists on video
   hclust_exclude(exclude = c("InLap_flag", "OutLap_flag")) # adding conditional clustering here
+
 
 ```
 
@@ -1022,6 +1023,7 @@ ad_quali_2021_l %>%
   theme_main() +
   theme_main_add()
 
+
 # adjust for mediums
 # adjustment from regression output (not sure if this is valid)
 
@@ -1177,8 +1179,11 @@ ad_quali_2021_l_fast <- ad_quali_2021_l %>%
   filter(hclust == 1) %>%
   # manually filtering out aborted laps (make this more formal in future)
   filter(!(Driver == "SAI" & LapNumber == 15)) %>%
-  filter(!(Driver == "VER" & LapNumber == 18))
-
+  filter(!(Driver == "VER" & LapNumber == 18)) %>%
+  # removing non-existant / faux laps
+  filter(!(Driver == "HAM" & LapNumber == 19)) %>% # we know Lewis' 19th lap was just him driving to the grid
+  filter(!(Driver == "STR" & LapNumber == 7)) # no evidence that STR lap 7 exists on video
+  
 # remove
 gam_test <- mgcv::gam(LapTime5 ~ s(lap_start_rownum, by = Compound) + Compound + Team,
                       data = ad_quali_2021_l_fast, method = "REML")
@@ -1222,6 +1227,8 @@ ad_q3_driver_gam <- mgcv::gam(LapTime5 ~ s(lap_start_rownum, by = Compound) + Co
                                 data = ad_quali_2021_l_fast, method = "REML") # %>% summary()
   # plot()
 
+gam.check(ad_q3_driver_gam)
+
 ad_q3_driver_preds <- broom::augment(ad_q3_driver_gam, data = ad_quali_2021_l_fast) %>% 
   select(DriverNumber, Driver, LapNumber, lap_start_rownum, Compound, Team,
          session_number_coal, LapTime5, .fitted, .se.fit, .resid) %>%# View()
@@ -1233,7 +1240,7 @@ ad_q3_driver_preds <- broom::augment(ad_q3_driver_gam, data = ad_quali_2021_l_fa
                                 data = ad_quali_2021_l_fast, method = "REML") %>% summary()
 
 # smoothed line over actual lap times
-  
+
 ad_q3_driver_preds %>%
   ggplot(aes(x = lap_start_rownum, y = LapTime5, color = Compound)) +
   geom_point() +
@@ -1255,7 +1262,7 @@ ad_q3_driver_preds %>%
   theme_main_add()
 
 
-# faceted by team, all compounds
+ # faceted by team, all compounds
 ## this one is now redundant
 
 ad_q3_driver_preds %>%
@@ -1346,6 +1353,10 @@ fit_predict_preds <- broom::augment(ad_q3_driver_gam, newdata = fit_predict) %>%
 fit_predict_preds %>%
   ggplot(aes(x = lap_start_rownum, y = .fitted)) +
   # geom_point() +
+  geom_point(data = ad_q3_driver_preds[ad_q3_driver_preds$Compound == "SOFT",],
+             aes(x = lap_start_rownum, y = LapTime5, color = Driver)) +
+  geom_line(data = ad_q3_driver_preds[ad_q3_driver_preds$Compound == "SOFT",],
+             aes(x = lap_start_rownum, y = LapTime5, color = Driver), alpha = 0.5) +
   geom_line(color = "red") +
   # geom_smooth(method = "gam") +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
@@ -1387,6 +1398,26 @@ fit_predict_prog %>%
 ```
 
 
+#### Bonus: Analyzing Lando and Max's last laps
+- telemetry analysis
+
+```{r}
+
+
+
+```
+
+
+
+Expand code to analyze all 2021 qualifying sessionss
+- tracks that featured the most / least track evolution throughout the season, and why its important for teams to know
+- Best qualifying laps over the entire season, when controlling for track evolution and team pace
+
+Steps:
+
+
+
+
 ------------
 
 
@@ -1395,7 +1426,7 @@ Project idea:
 Analyze track evolution
 
 - Compare average speed increases, across all teams, as sessions increase
-  - Can include pracice, but qualifying would probably be more relevant
+  - Can include practice, but qualifying would probably be more relevant
 - Can we weigh / penalize laps with significant, suspected track evolution
   - Promote good laps in Q1, given lack of track evolution
 

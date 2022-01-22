@@ -1,0 +1,1055 @@
+---
+title: "Analysis of 2021 Track Evolution"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+# load packages
+if (!require(tidyverse)) {
+  install.packages("tidyverse")
+}
+if (!require(scales)) {
+  install.packages("scales")
+}
+if (!require(patchwork)) {
+  install.packages("patchwork")
+}
+if (!require(jcolors)) {
+  install.packages("jcolors")
+}
+if (!require(knitr)) {
+  install.packages("knitr")
+}
+if (!require(lubridate)) {
+  install.packages("lubridate")
+}
+if (!require(tidymodels)) {
+  install.packages("tidymodels")
+}
+if (!require(janitor)) {
+  install.packages("janitor")
+}
+if (!require(kableExtra)) {
+  install.packages("kableExtra")
+}
+if (!require(reticulate)) {
+  install.packages("reticulate")
+}
+if (!require(fuzzyjoin)) {
+  install.packages("fuzzyjoin")
+}
+if (!require(mgcv)) {
+  install.packages("mgcv")
+}
+if (!require(zoo)) {
+  install.packages("zoo")
+}
+
+
+# this loads custom plot theme from saved location
+
+source('~/Documents/Projects/tools/theme_main.R')
+
+```
+
+
+  
+```{r}
+
+theme_main_add <- function() {
+  
+    theme(plot.title = element_text(hjust = 0),
+        plot.subtitle = element_text(face = "italic",
+                                     hjust = 0),
+        plot.background = element_rect(fill = NA,
+                                       color = "black",
+                                       size = 2)
+        )
+  
+}
+
+```
+
+### Options for acquiring data
+
+1. Use FastF1 Python library and work with reticulate to convert to R
+  - Work backwards, starting with an analysis and creating R code for necessary pieces
+2. Study how FastF1 scrapes and convert logic to R
+
+```{r}
+
+Sys.setenv(RETICULATE_PYTHON = "/Users/colinrenville/.pyenv/versions/3.9.9/bin/python3.9")
+
+
+```
+
+```{r}
+
+reticulate::source_python("ExploreF1_data_pull.py")
+
+```
+
+Generalize functions to accomodate all (non-sprint) qualifying sessions in 2021
+
+
+```{r}
+
+# need to turn this into a function
+## also need to ensure that coal_LapStartTime gets created as seen in get_quali_reference()
+
+clean_lap_data <- function(tbl) {
+  
+  # tbl <- get_driver_data(season = '2021',
+  #                        # circuit = 'Abu Dhabi',
+  #                        circuit = 'americas',
+  #                        session = 'Q',
+  #                        driver = 'ALL',
+  #                        data_type = 'laps')
+  
+  lap_clean_df <- tbl %>%
+    # prune out what isnt being used below
+    # arrange(LapStartTime) %>%
+    group_by(Driver) %>%
+    mutate(Compound = factor(Compound, levels = c("SOFT", "MEDIUM", "HARD")),
+           LapTime_per = seconds_to_period(LapTime),
+           # Sector1Time2 = (Sector2SessionTime - LapStartTime),
+           next_lap_StartTime = lead(LapStartTime),
+           Sector1SessionTime2 = (next_lap_StartTime - (Sector2Time + Sector3Time)),
+           # Sector1Time2 = ((next_lap_StartTime - LapStartTime) - (Sector2Time + Sector3Time)),
+           Sector1Time3 = (next_lap_StartTime - PitOutTime - Sector2Time - Sector3Time),
+           # Sector3Time_test = Sector3Time,
+           Sector3Time2 = (PitInTime - Sector2SessionTime),
+           # getting closer, need to fix still 
+           # LapTime2 = (Sector1Time2 + Sector2Time + Sector3Time),
+           # test_times = (Sector1SessionTime - LapStartTime),
+           # LapTime3 = coalesce(LapTime,(Sector1Time3 + Sector2Time + Sector3Time)),
+           LapTime4 = coalesce(LapTime,
+                               (Sector1Time + Sector2Time + Sector3Time),
+                               (Sector1Time3 + Sector2Time + Sector3Time)),
+           Sector1Time_outlap = ifelse(!is.na(PitOutTime), (Sector2SessionTime-PitOutTime-Sector2Time), NA),
+           # LapStartTime alone should not be used for this logic
+           # use PitOutTime as LapStartTime for outlaps, LapStartTime for non-outlaps
+           coal_LapStartTime = coalesce(PitOutTime, LapStartTime),
+           LapTime5 = coalesce(LapTime4,
+                              (PitInTime - LapStartTime) # for laps occuring during a red flag
+                              ),
+           InLap_flag = if_else(!is.na(PitInTime), 1, 0),
+           OutLap_flag = if_else(!is.na(PitOutTime), 1, 0),
+           coal_Sector1Time = coalesce(Sector1Time, Sector1Time3),
+           coal_Sector3Time = coalesce(Sector3Time, Sector3Time2)) %>%
+    ungroup() %>%
+    group_by(season, raceName) %>%
+    mutate(lap_start_rownum = (dplyr::row_number(coal_LapStartTime) - 1),
+           scale_LapTime5 = scale(LapTime5),
+           # this isnt doing what i thought it would
+           ## future, has to be a way to do this inline
+           # scale_LapTime5_hclust = ifelse(InLap_flag == 0 & OutLap_flag == 0,
+           #                                scale(LapTime5[InLap_flag == 0 & OutLap_flag == 0]), NA)
+           ) %>%
+    ungroup()
+  
+  # editing below... 
+  
+  lap_clean_scaled <- lap_clean_df %>%
+    # any filtering that gets added to hclust_exlude() needs to be replciated here
+    filter(InLap_flag == 0 & OutLap_flag == 0) %>%
+    select(raceName, season, Driver, DriverNumber, LapNumber, InLap_flag,
+           OutLap_flag, coal_Sector1Time, Sector2Time, coal_Sector3Time,
+           LapTime5, scale_LapTime5) %>%
+    mutate(scale_Sector1Time = scale(coal_Sector1Time),
+           scale_Sector2Time = scale(Sector2Time),
+           scale_Sector3Time = scale(coal_Sector3Time),
+           scale_LapTime5_filtered = scale(LapTime5)) %>%
+    select(-c(Driver, LapTime5, InLap_flag, OutLap_flag, coal_Sector1Time, Sector2Time,
+              coal_Sector3Time, scale_LapTime5))
+  
+  # rejoin scaled, filtered data onto primary df
+  
+  lap_clean_df <- lap_clean_df %>%
+    left_join(lap_clean_scaled, by = c("season" = "season",
+                                       "raceName" = "raceName",
+                                       "DriverNumber" = "DriverNumber",
+                                       "LapNumber" = "LapNumber"))
+  
+  return(lap_clean_df)
+  
+}
+
+
+# function to convert seconds to period type
+
+sec_lab_convert <- function(axis = "y", start_sec=0, end_sec=20000, int_sec=20) {
+  
+  seconds_lookup <- data.frame(seconds_list = seq(seconds(start_sec),
+                                                  seconds(end_sec),
+                                                  by = seconds(int_sec)))
+  
+  seconds_lookup <- seconds_lookup %>%
+    mutate(seconds_period = seconds_to_period(seconds_list))
+  
+  if (tolower(axis) == "y") {
+   
+    scale_y_continuous(breaks = seconds_lookup$seconds_list,
+                       labels = seconds_lookup$seconds_period)
+    
+  } else if (tolower(axis) == "x") {
+    
+    scale_x_continuous(breaks = seconds_lookup$seconds_list,
+                       labels = seconds_lookup$seconds_period)
+    
+  }
+  
+}
+
+# for quali sessions, will need to establish a reference table for session number
+## Q1 if lap before Q2, Q2 if lap started after Q1 and before Q3, .etc
+## will need to loop through all drivers qualifying laps
+## floor start of first lap to nearest hour for session start then, calculate intervals off of that
+
+# easier to do the above (as it is built now); or
+# just pass a df as arg and add session_number to existing df
+## to avoid calling get_driver_data() more than once
+## would assume scope of analysis stays within a single gp weekend
+# keeping it as is allows is more expensive but does allow to be more creative
+## data is also cached locally, so not hurting anything
+
+get_quali_reference <- function(season, circuit) {
+  
+  # pick up tomorrow: zandvoort only has 2 sessions.. where in here is that a problem? / why?
+  
+  # season = '2021'
+  # circuit = 'zandvoort'
+  # circuit = 'yas_marina'
+  # driver = 'ALL'
+
+  # breaks in between quali sessions are 300 seconds / 5 minutes
+  
+  break_seconds <- 300
+  
+  # load data
+  
+  # have 2 things to fix
+  # 1. need red flag detection logic (not critical for Abu Dhabi qualifying)
+  # 2. cases like after the red flag where Sainz started lap before LEC but LapStartTime doesnt show as such
+  ## fixed with coalesce logic for PitOutTime and LapStartTime: coal_LapStartTime
+
+  # note the assumptions below
+  ## session logic should work for Abu Dhabi, but will almost certainly need
+  ## ...to be generalized for other quali sessions, ex: those with red flags
+  ## ...lasting as much as the break_time (5 minutes) or more
+  
+  # circuit <- "imola"
+  
+  quali_reference_data <- get_driver_data(season = season,
+                                          circuit = circuit,
+                                          session = 'Q',
+                                          driver = 'ALL',
+                                          data_type = 'laps') %>%
+    filter(!(raceName == "zandvoort" & Driver == "LAT" & LapNumber == 15)) %>% # problematic lap, getting towed to pits i think
+    mutate(Sector1Time_outlap = ifelse(!is.na(PitOutTime), (Sector2SessionTime-PitOutTime-Sector2Time), NA),
+           # LapStartTime alone should not be used for this logic
+           # use PitOutTime as LapStartTime for outlaps, LapStartTime for non-outlaps
+           coal_LapStartTime = coalesce(PitOutTime, LapStartTime)) %>%
+    arrange(coal_LapStartTime) %>% # this is important
+    # create rolling "scores" for track status? 
+    mutate(track_status_1 = dplyr::if_else(TrackStatus == "1", 1, 0),
+           track_status_n1 = dplyr::if_else(TrackStatus != "1", 1, 0),
+           # track_status_1_score_l = zoo::rollsum(track_status_1, k = 4, align = "left", fill = NA),
+           # track_status_1_score_r = zoo::rollsum(track_status_1, k = 4, align = "right", fill = NA),
+           # lag_track_status_1_score_r = zoo::rollsum(lag(track_status_1), k = 4, align = "right", fill = NA),
+           lead_track_status_1_score_l = zoo::rollsum(lead(track_status_1), k = 4, align = "left", fill = NA),
+           # track_status_1_score = lag_track_status_1_score_r + lead_track_status_1_score_l,
+           # lag_track_status_n1_score_r = zoo::rollsum(lag(track_status_n1), k = 4, align = "right", fill = NA),
+           lead_track_status_n1_score_l = zoo::rollsum(lead(track_status_n1), k = 4, align = "left", fill = NA)
+           # track_status_n1_score = lag_track_status_n1_score_r + lead_track_status_n1_score_l
+           ) %>%
+    mutate(last_coal_LapStartTime = lag(coal_LapStartTime),
+           last_coal_LapStartTime_delta = (coal_LapStartTime - last_coal_LapStartTime),
+           last_TrackStatus = lag(TrackStatus),
+           session_break_flag_coal = ifelse(last_coal_LapStartTime_delta >= break_seconds, 1, 0),
+           session_break_flag_coal2 = ifelse((last_coal_LapStartTime_delta >= break_seconds) & ((!str_detect(TrackStatus, "5"))), 1, 0)
+           # session_break_flag_coal2 = ifelse((last_coal_LapStartTime_delta >= break_seconds) & ((!str_detect(last_TrackStatus, "5"))), 1, 0)
+           # session_break_flag_coal2 = ifelse((last_coal_LapStartTime_delta >= break_seconds) & ((!str_detect(last_TrackStatus, "5")) |  (!str_detect(TrackStatus, "5"))), 1, 0)
+           ) %>%
+    fill(session_break_flag_coal, .direction = "up") %>%
+    fill(session_break_flag_coal2, .direction = "up") %>%
+    mutate(session_number_coal = as.factor(as.character((cumsum(session_break_flag_coal) + 1))),
+           session_number_coal2 = as.factor(as.character((cumsum(session_break_flag_coal2) + 1)))) %>%
+    # dont think the below LapStartTime session breaks will be needed
+    arrange(LapStartTime) %>% # this is important
+    mutate(last_LapStartTime = lag(LapStartTime),
+           last_LapStartTime_delta = (LapStartTime - last_LapStartTime),
+           # have to control here for cases where there may be > 5 min pause because of red flags (TrackStatus: 5)
+           # session_break_flag = ifelse((TrackStatus != "5" & last_LapStartTime_delta) >= break_seconds, 1, 0),
+           session_break_flag = ifelse(last_LapStartTime_delta >= break_seconds, 1, 0),
+           session_break_flag2 = session_break_flag) %>%
+    fill(session_break_flag2, .direction = "up") %>%
+    # look to moving session end logic here
+    
+    mutate(session_number = as.factor(as.character((cumsum(session_break_flag2) + 1)))) %>% # filter(Driver %in% c("SAI", "LEC", "GIO"))
+    select(-c(last_coal_LapStartTime, last_coal_LapStartTime_delta,
+              # session_break_flag_coal,
+              last_LapStartTime, last_LapStartTime_delta, 
+              session_break_flag, session_break_flag2)) %>% # removing all columns that were added
+    # if a red flag comes out with less than 2 minutes or so in a session, end the session
+    # if a PitOutTime occurrs with a yellow/red TrackStatus, still increment session
+    group_by(season, raceName, session_number_coal2) %>%
+    arrange(coal_LapStartTime) %>%
+    mutate(lead_coal_LapStartTime = lead(coal_LapStartTime),
+           delta_time_coal_LapStartTime = (lead_coal_LapStartTime - coal_LapStartTime),
+           approx_time_coal_LapStartTime = (cumsum(delta_time_coal_LapStartTime) / 60))
+    
+  # aggregate to impute quali session start times
+  
+  # quali_reference_agg <- quali_reference_data %>%
+  #   group_by(session_number) %>%
+  #   summarize(min_LapStartTime = min(LapStartTime),
+  #             max_LapStartTime = max(LapStartTime))
+  
+  quali_reference_agg_coal <- quali_reference_data %>%
+    group_by(raceName, session_number_coal2) %>%
+    summarize(min_coal_LapStartTime = min(coal_LapStartTime),
+              max_coal_LapStartTime = max(coal_LapStartTime),
+              max_RedFlag = max(ifelse(TrackStatus == "5", 1, 0))) %>%
+    ungroup()
+  
+  return(quali_reference_agg_coal)
+  
+}
+
+
+hclust_exclude <- function(tbl, exclude) {
+  
+  # need a function that passes conditions to pass prior to training hclust model
+  
+  # test variables
+  # exclude = c("InLap_flag", "OutLap_flag")
+  # tbl <- rec_df
+  
+  exclude_list <- do.call(paste0, list(exclude))
+  
+  assertthat::assert_that(max(names(tbl) %in% exclude_list) == 1,
+                          msg = paste0(paste(exclude_list, collapse = ' and '), " does not exist in tbl."))
+  
+  # create filtered data
+  
+  tbl_clust <- tbl %>%
+    filter(if_all(exclude_list, ~ . == "0")) %>%
+    # working with this for now
+    ## the final logic should be if any sector is abnormal, then the lap is excluded from hclust() 
+    filter(scale_LapTime5_filtered <= 3) %>% # any laps > 3 std. devs from the subsetted mean are excluded from clustering
+    select(Driver, LapNumber, LapTime5)
+    
+  # create hclust on filtered data
+  
+  tbl_clust$hclust <- tbl_clust %>%
+    select(LapTime5) %>%
+    dist() %>%
+    hclust(method = "single") %>%
+    cutree(2) %>%
+    factor()
+  
+  # join filtered data onto raw data
+  
+  tbl <- tbl %>%
+    left_join(select(tbl_clust, -LapTime5), by = c("Driver", "LapNumber"))
+  
+  return(tbl)
+  
+}
+
+
+# function that accepts a list of circuitids to iterate through and load
+
+compile_driver_data <- function(season='2021',
+                                circuit, 
+                                session = 'Q',
+                                driver = 'ALL',
+                                data_type = 'laps') {
+  
+  season <- '2021'
+  circuit <- 'zandvoort'
+  session <- 'Q'
+  driver <- 'ALL'
+  data_type <- 'laps'
+  
+  if (toupper(session) == 'Q') {
+    
+    # load quali reference table
+    
+    # season <- '2021'
+    # circuit <- 'interlagos'
+    # session <- 'SQ'
+    # driver <- 'ALL'
+    # data_type <- 'laps'
+    
+    quali_ref_data <- get_quali_reference(season,
+                                          circuit)
+    
+    # load and clean qualifyinh lap data
+    ## joining above quali reference table
+    
+    lap_data_raw <- get_driver_data(season,
+                                   circuit,
+                                   session,
+                                   driver,
+                                   data_type) %>%
+      clean_lap_data() %>%
+      # will need to add argument in join for circuit / gp
+      ## looks like map_df compiles this one race at a time, so i can get away with this as is
+      fuzzyjoin::fuzzy_join(quali_ref_data,
+                        by = c("raceName" = "raceName",
+                               "coal_LapStartTime" = "min_coal_LapStartTime",
+                               "coal_LapStartTime" = "max_coal_LapStartTime"),
+                        match_fun = list(`==`, `>=`, `<=`)) %>%
+      hclust_exclude(exclude = c("InLap_flag", "OutLap_flag"))
+    
+  } else {
+    
+    stop("Only supporting qualifying sessions for now.")
+    
+  }
+  
+  return(lap_data_raw)
+  
+}
+
+
+```
+
+
+```{r}
+
+# pick up: debug this
+## gtg, had to convert season input to integer
+
+# test_qatar <- get_driver_data(season = '2021', circuit = 'losail', session = 'Q', driver = 'ALL', data_type='laps')
+
+
+```
+
+
+# test by adding cota to existing abu dhabi analysis 
+
+```{r, message=FALSE}
+
+# need to exclude / replace sprint qualifyings with traditional qualifying? 
+
+circuits_2021 <- get_weekend_gp(season = '2021') %>%
+  dplyr::filter(circuitId %in% c("yas_marina", 
+                                 # "americas",
+                                 # "red_bull_ring",
+                                 "monaco", # going to be a problem, mult. warmup laps plus huge track evo
+                                 "imola",
+                                 # "rodriguez",
+                                 "zandvoort",
+                                 # "portimao",
+                                 # "austria",
+                                 # "losail",
+                                 "interlagos"
+                                 )
+                                   ) %>%
+  select(raceName, round, season, circuitId) # %>%
+  # pull()
+
+ad_compile_test_mult <- circuits_2021$circuitId %>%
+  map_df(~ compile_driver_data(season = '2021',
+                               circuit = .x,
+                               # session = NULL,
+                               driver = 'ALL',
+                               data_type = 'laps')) # %>% View()
+
+```
+
+
+```{r, fig.height=6, fig.width=8}
+
+# fluid hline
+
+ad_compile_test_mult_cut <- ad_compile_test_mult %>% # View() 
+  group_by(raceName) %>%
+  arrange(raceName, hclust) %>% 
+  mutate(lead_hclust_race = lead(hclust),
+         lead_LapTime5 = lead(LapTime5)) %>%
+  filter(hclust == 1 & lead_hclust_race == 2) %>%
+  # ungroup() %>% 
+  select(raceName, Driver, DriverNumber, LapNumber, LapTime5,
+         lead_LapTime5, hclust, lead_hclust_race) %>%
+  mutate(hline_val = mean(c(LapTime5, lead_LapTime5))) %>% 
+  ungroup() %>%
+  select(raceName, hline_val)
+    
+
+ad_compile_test_mult %>%
+  # patchwork some of these below for storytelling
+  
+  # filter(raceName %in% c("Austrian Grand Prix",
+  #                        "Styrian Grand Prix")) %>%
+  # filter(raceName == "Monaco Grand Prix") %>%
+  # filter(raceName == "Mexico City Grand Prix") %>%
+  
+  filter(raceName == "Qatar Grand Prix" |
+           raceName == "São Paulo Grand Prix" |
+           raceName == "Abu Dhabi Grand Prix" | 
+           raceName == "Emilia Romagna Grand Prix") %>%
+  # filter(raceName == "Dutch Grand Prix") %>%
+  # filter(raceName == "Abu Dhabi Grand Prix") %>% 
+  # filter(!is.na(hclust)) %>%
+  ggplot(aes(y = LapTime5, fill = hclust)) +
+  geom_histogram(bins = 100,
+                 color = "black",
+                 show.legend = FALSE) +
+  labs(title = "Qualifying Lap Times by Grand Prix and Cluster",
+       subtitle = "We know NA laps are not fast laps, leaving us to just need to predict for clusters 1 (fast laps) and 2 (slot laps).",
+       x = "Ct. Laps",
+       y = "Lap Time",
+       caption = "Data: FastF1",
+       color = "Cluster") +
+  facet_wrap(raceName~hclust,
+             scales = "free_x",
+             nrow = 4) +
+  geom_hline(aes(yintercept = ifelse(!is.na(hclust) & raceName == ad_compile_test_mult_cut$raceName, ad_compile_test_mult_cut$hline_val, NA), group = raceName),
+                 linetype = "dashed",
+                 color = "red") +
+  coord_cartesian(ylim = c(60,200)) +
+  sec_lab_convert(axis = "y") +
+  scale_fill_manual(values = c("1" = "#7a00f5",
+                               "2" = "#ab511d")) +
+  theme_main() +
+  theme_main_add()
+
+```
+
+
+Problem case(s):
+
+### Dry qualifyings
+
+- Monaco
+
+  - Explain why here
+
+```{r}
+
+ad_compile_test_mult %>%
+  filter(raceName == "Monaco Grand Prix") %>%
+  ggplot(aes(y = LapTime5, fill = hclust)) +
+  geom_histogram(bins = 100,
+                 color = "black",
+                 show.legend = FALSE) +
+  labs(title = "Monaco 2021 Qualifying Lap Times by Grand Prix and Cluster",
+       subtitle = "Monaco is a problematic qualifying to use clustering for, but we can always manually pick a boundary for outliers like this.",
+       x = "Ct. Laps",
+       y = "Lap Time",
+       caption = "Data: FastF1",
+       color = "") +
+  facet_wrap(raceName~hclust,
+             scales = "free_x",
+             nrow = 1) +
+  geom_hline(aes(yintercept = ifelse(!is.na(hclust) & raceName == ad_compile_test_mult_cut$raceName, ad_compile_test_mult_cut$hline_val, NA),
+                 group = raceName,
+                 color = "Attempted cutoff"),
+                 linetype = "dashed") +
+  coord_cartesian(ylim = c(60,115)) +
+  sec_lab_convert(axis = "y",
+                  int_sec = 10) +
+  scale_fill_manual(values = c("1" = "#7a00f5",
+                               "2" = "#ab511d")) +
+  theme_main() +
+  theme_main_add()
+
+```
+
+
+- Portugal
+
+  - Explain why here
+
+```{r}
+
+ad_compile_test_mult %>%
+  filter(raceName == "Portuguese Grand Prix") %>%
+  ggplot(aes(y = LapTime5, fill = hclust)) +
+  geom_histogram(bins = 100,
+                 color = "black",
+                 show.legend = FALSE) +
+  labs(title = "Portugal 2021 Qualifying Lap Times by Grand Prix and Cluster",
+       subtitle = "Same with Portimao.. :)",
+       x = "Ct. Laps",
+       y = "Lap Time",
+       caption = "Data: FastF1",
+       color = "") +
+  facet_wrap(raceName~hclust,
+             scales = "free_x",
+             nrow = 1) +
+  geom_hline(aes(yintercept = ifelse(!is.na(hclust) & raceName == ad_compile_test_mult_cut$raceName, ad_compile_test_mult_cut$hline_val, NA),
+                 group = raceName,
+                 color = "Attempted cutoff"),
+                 linetype = "dashed") +
+  coord_cartesian(ylim = c(65,130)) +
+  sec_lab_convert(axis = "y",
+                  int_sec = 10) +
+  scale_fill_manual(values = c("1" = "#7a00f5",
+                               "2" = "#ab511d")) +
+  theme_main() +
+  theme_main_add()
+
+```
+
+
+### Wet qualifyings
+
+- all wet qualifyings will be removed, as any rain will eliminate track evolution and any evolution would be attributed to drying conditions
+
+- Belgium
+
+- Russia
+
+- Turkey(?).. looks debateable, but track definitely started wet
+
+
+
+
+
+
+Point: better to only have to manually override 2(?) sessions than 23.
+
+
+## Expand GAM to all Grand Prixs (besides monaco and portugal at first?)
+
+Create function for GAM model
+
+```{r, eval=FALSE}
+
+# scrap
+
+# why are there 4 sessions for imola
+# why are there only 2 sessions for zandvoort
+
+ad_compile_test_mult %>%
+  # filter(raceName == "Emilia Romagna Grand Prix") %>%
+  filter(raceName == "Dutch Grand Prix") %>%
+  arrange(coal_LapStartTime) %>%
+  View()
+
+```
+
+
+```{r}
+
+# use Abu Dhabi as control for testing
+
+# need to include filtering of only q3 drivers by raceName
+
+ad_compile_q3_drivers <- ad_compile_test_mult %>%
+  # filter(raceName == "Abu Dhabi Grand Prix") %>%
+  select(raceName, Driver, session_number_coal2) %>%
+  group_by(raceName, Driver) %>%
+  summarize(max_session = max(as.numeric(as.character(session_number_coal2))),
+            max_session2 = max(session_number_coal2),
+            .groups = "drop") %>%
+  filter(max_session == 3)
+
+
+ad_quali_2021_l_fast_compile <- ad_compile_test_mult %>%
+  # filter(raceName == "Abu Dhabi Grand Prix") %>% 
+  filter(raceName == "Abu Dhabi Grand Prix" |
+           raceName == "Emilia Romagna Grand Prix" |
+           raceName == "São Paulo Grand Prix" |
+           raceName == "Qatar Grand Prix" |
+           raceName == "Dutch Grand Prix") %>% 
+  # filter(raceName == "Qatar Grand Prix") %>%
+  # filter(raceName == "São Paulo Grand Prix") %>%
+  inner_join(ad_compile_q3_drivers, by = c("Driver" = "Driver",
+                                           "raceName" = "raceName")) %>%
+  filter(hclust == 1) %>% # %>% View(title = "test")
+  
+  # cant do aborted lap logic until here, after filtering to only fast laps
+  # aborted lap logic
+  group_by(season, raceName, Driver, Compound) %>%
+  arrange(season, raceName, Driver, Compound, lap_start_rownum) %>%
+  mutate(last_driver_compound_LapTime5 = lag(LapTime5),
+         last_driver_compound_delta_sec = (LapTime5 - last_driver_compound_LapTime5),
+         last_driver_compound_delta_pct = ((LapTime5 - last_driver_compound_LapTime5) / last_driver_compound_LapTime5)) %>%
+  ungroup() %>%
+  arrange(DriverNumber, Compound, lap_start_rownum) %>%
+  # have to explicitly keep NAs here
+  # remove any lap that is > 1% increase from previous lap on same compound (assuming outliers, not assoc. w/ track evo)
+  # could also flag and then compare with and without.. 
+  filter(is.na(last_driver_compound_delta_pct) | last_driver_compound_delta_pct <= .01) %>%
+  ungroup() # %>%
+  
+  # will need to remove these manual filters once AD is verified
+  ## need to develop aborted lap logic next
+  filter(!(raceName == "Abu Dhabi Grand Prix" & Driver == "SAI" & LapNumber == 15)) %>%
+  filter(!(raceName == "Abu Dhabi Grand Prix" & Driver == "VER" & LapNumber == 18)) %>%
+  # removing non-existant / faux laps
+  filter(!(raceName == "Abu Dhabi Grand Prix" & Driver == "HAM" & LapNumber == 19)) %>% # we know Lewis' 19th lap was just him driving to the grid
+  filter(!(raceName == "Abu Dhabi Grand Prix" & Driver == "STR" & LapNumber == 7)) %>%
+  filter(!(raceName == "Qatar Grand Prix" & lap_start_rownum %in% c(297,295,236,238)))
+  # will need to remove these manual filters once AD is verified
+
+  
+# function of gam model
+## need to add condition to remove Compound for when no drivers use mediums in quali
+## this is going to happen for every dry qualifying for sprint qualifying weekends
+
+gam_quali_model <- function(df, compound_len) {
+  
+  # df <- ad_quali_2021_l_fast_compile
+  
+  if (compound_len > 1) {
+    
+    ad_q3_driver_gam_compile <- mgcv::gam(LapTime5 ~ s(lap_start_rownum, by = Compound) + Compound + Team,
+                                  data = df, method = "REML")
+    
+  } else if (compound_len == 1) {
+    
+    ad_q3_driver_gam_compile <- mgcv::gam(LapTime5 ~ s(lap_start_rownum) + Team,
+                                  data = df, method = "REML")
+    
+  } else {
+    
+    stop("No Compound levels for model fitting!")
+    
+  }
+  
+  return(ad_q3_driver_gam_compile)
+  
+}
+
+
+quali_gam_df <- ad_quali_2021_l_fast_compile %>%
+  group_by(season, raceName) %>%
+  mutate(len_Compound = length(unique(Compound[!is.na(Compound)]))) %>%
+  group_by(season, raceName, len_Compound) %>%
+  nest() %>%
+  mutate(gam_model = data %>% map(~gam_quali_model(., compound_len = len_Compound))) %>%
+  # mutate(gam_model2 = map2(gam_quali_model, data, ))
+  ungroup()
+
+
+# generalize this for all qualifyings
+
+f_fit_predict_compile <- function(df) {
+  
+  # df <- quali_gam_df
+  
+  quali_gam_df_grp <- df %>%
+    unnest(data) %>%
+    select(season, raceName, Team, lap_start_rownum) %>%
+    group_by(season, raceName, Team) %>%
+    summarize(min_lap_start_rownum = min(lap_start_rownum),
+              start_session = 1, # dont think i need this
+              max_lap_start_rownum = max(lap_start_rownum)) %>%
+    ungroup() 
+
+  
+  fit_predict_compile <- quali_gam_df_grp %>%
+    group_by(season, raceName) %>%
+    expand(Team,
+           lap_start_rownum = 1:max(max_lap_start_rownum),
+           Compound = "SOFT") %>%
+    nest() %>%
+    rename("pred_data" = data) %>%
+    ungroup()
+  
+  # fit_predict_compile <- expand.grid(season = unique(quali_gam_df_grp$season),
+  #                                    raceName = unique(quali_gam_df_grp$raceName),
+  #                                    ) %>%
+  #   # group_by(season, raceName) %>%
+  #   expand.grid(#season = unique(quali_gam_df_grp$season),
+  #             #raceName = unique(quali_gam_df_grp$raceName),
+  #              lap_start_rownum = 1:max(quali_gam_df_grp$max_lap_start_rownum[quali_gam_df_grp$season == season & quali_gam_df_grp$raceName == raceName])) # only going up until the amount of laps we have recorded in training
+  #              Team = unique(quali_gam_df_grp$Team),
+  #              Compound = "SOFT") %>%
+  #   group_by(season, raceName) %>%
+  #   nest() %>%
+  #   rename("pred_data" = data) %>%
+  #   ungroup()
+  
+  return(fit_predict_compile)
+  
+}
+
+# simple function to remove .rownames columns when they exist
+
+remove_rownames <- function(df) {
+  
+  df <- df %>%
+    select_if(!(names(.) %in% c(".rownames")))
+  
+  return(df)
+  
+}
+
+
+# join nested, prediction dataset onto quali_gam_df
+
+quali_gam_df <- quali_gam_df %>%
+  group_by(season, raceName) %>%
+  mutate(#tidy = map(gam_model, broom::tidy),
+         #glance = map(gam_model, broom::glance),
+         preds_obs = map(gam_model, broom::augment),
+         preds_obs = map(preds_obs, remove_rownames)
+         ) %>%
+  # left_join(fit_predict_compile, by = c("season", "raceName")) %>%
+  left_join(f_fit_predict_compile(.), by = c("season" = "season",
+                                             "raceName" = "raceName")) %>%
+  # group_by(season, raceName) %>%
+  mutate(preds_new = map2(gam_model, pred_data, ~broom::augment(.x, newdata = .y))) %>%
+  ungroup()
+
+
+# create function to safely unnest and deselect dangerous columns
+## also added argument to allow for creation of confidence intervals
+### when needed columns exist, passing if not
+
+unpack_safely <- function(tbl, col, data_to_keep=NULL, add_conf = FALSE) {
+  
+  # tbl <- quali_gam_df
+  # col <- "preds_obs"
+  # data_to_keep <- c("Driver", "TrackStatus")
+  # data_to_keep <- NULL
+  
+  # detect nested columns in tbl
+  
+  nested_columns_df <- sapply(tbl, class) %>%
+    as.data.frame() %>%
+    rename("var_type" = ".")
+  
+  nested_columns_df$var_names <- rownames(nested_columns_df)
+  rownames(nested_columns_df) <- 1:nrow(nested_columns_df)
+  
+  # convert to list of names for nested column names
+  
+  nested_columns_list <- nested_columns_df %>%
+    filter(var_type == "list") %>%
+    pull(var_names)
+  
+  # select identifiers + specified columns to keep from training data
+  
+  if (!is.null(data_to_keep)) {
+    
+     data_keep_df <- tbl %>%
+       unnest(data) %>%
+       # select only identifiers + list of columns to keep
+       select(season, raceName, lap_start_rownum, all_of(data_to_keep))
+    
+  } else {
+    
+      data_keep_df <- tbl %>%
+        unnest(data) %>%
+        # select only identifiers + list of columns to keep
+        select(season, raceName, lap_start_rownum)
+    
+  }
+  
+  # unnest specified column and drop all remaining nested columns
+  
+  tbl <- tbl %>%
+    unnest(cols = col) %>%
+    select_if(!(names(.) %in% nested_columns_list)) %>%
+    left_join(data_keep_df, by = c("season" = "season",
+                                   "raceName" = "raceName",
+                                   "lap_start_rownum" = "lap_start_rownum"))
+  
+  # add confidence interval for fitted values
+  
+  if (add_conf) {
+    
+    # detect if .fitted and .se.fit exist and if so, calc conf ints
+    
+    if (max(str_detect(names(tbl), ".fitted")) == 1 &
+        max(str_detect(names(tbl), ".se.fit")) == 1) {
+      
+      tbl <- tbl %>%
+        mutate(lower = .fitted - 1.96 * .se.fit,
+               upper = .fitted + 1.96 * .se.fit)
+      
+    } else {
+      
+      message("No fitted values found, passing.")
+      invisible()
+      
+    }
+    
+  }
+  
+  return(tbl)
+  
+}
+
+```
+
+
+### Abu Dhabi: Recreated 
+
+#### Observed
+
+```{r}
+
+# smoothed line over actual lap times
+  
+quali_gam_df %>%
+  unpack_safely(col = "preds_obs",
+                add_conf = TRUE) %>%
+  filter(raceName == "Abu Dhabi Grand Prix") %>%
+  ggplot(aes(x = lap_start_rownum, y = LapTime5, color = Compound)) +
+  geom_point() +
+  # geom_smooth(method = "gam") +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_line(aes(x = lap_start_rownum, y = .fitted, group = Compound), color = "purple") +
+  labs(title = "Lap Time Predictions per Session Progress, Team, Tire Compound",
+       subtitle = "Abu Dhabi Qualifying, Drivers who made Q3 only", 
+       x = "Laps Started",
+       y = "Lap Time") +
+  sec_lab_convert(axis = "y",
+                  start_sec = 80,
+                  end_sec = 90,
+                  int_sec = 0.5) +
+  facet_wrap(~fct_reorder(Team, -LapTime5),
+             nrow = 1) +
+  scale_color_manual(values = c("SOFT" = "RED",
+                                "MEDIUM" = "#e3a600")) +
+  theme_main() +
+  theme_main_add()
+
+```
+
+
+#### Predicted
+
+```{r}
+
+# recreate prediction df
+
+quali_gam_df %>%
+  # unnest(cols = preds_new) %>% View()
+  unpack_safely(col = "preds_new",
+                add_conf = TRUE,
+                data_to_keep = c("Driver", "TrackStatus")) %>% # View()
+  filter(raceName == "Abu Dhabi Grand Prix") %>%
+  ggplot(aes(x = lap_start_rownum, y = .fitted)) +
+  geom_point(data = quali_gam_df %>%
+               unpack_safely(col = "preds_obs",
+                             data_to_keep = c("Driver", "TrackStatus")) %>%
+               filter(Compound == "SOFT"),
+             aes(x = lap_start_rownum, y = LapTime5,
+                 color = Driver)
+             ) +
+  geom_line(data = quali_gam_df %>%
+               unpack_safely(col = "preds_obs",
+                             data_to_keep = c("Driver", "TrackStatus")) %>%
+               filter(Compound == "SOFT"),
+             aes(x = lap_start_rownum, y = LapTime5, color = Driver), alpha = 0.5) +
+  geom_line(color = "red") +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  labs(title = "Lap Time Predictions over Session Progress",
+       subtitle = "Abu Dhabi Qualifying, Predictions for teams that made Q3 only", 
+       x = "Laps Started",
+       y = "Lap Time") +
+  sec_lab_convert(axis = "y",
+                  start_sec = 80,
+                  end_sec = 90,
+                  int_sec = 0.5) +
+  facet_wrap(~fct_reorder(Team, -.fitted),
+             nrow = 1) +
+  theme_main() +
+  theme_main_add()
+
+```
+
+
+## Expanding
+
+All is good, but will need to be able to plot for qualis with only one compound fluidly
+
+```{r}
+
+# race_select <- "Qatar Grand Prix"
+race_select <- "São Paulo Grand Prix"
+
+# smoothed line over actual lap times
+  
+quali_gam_df %>%
+  unpack_safely(col = "preds_obs",
+                add_conf = TRUE) %>%
+  filter(raceName == race_select) %>%
+  ggplot(aes(x = lap_start_rownum, y = LapTime5, color = Compound)) +
+  geom_point() +
+  # geom_smooth(method = "gam") +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_line(aes(x = lap_start_rownum, y = .fitted, group = Compound), color = "purple") +
+  labs(title = "Lap Time Predictions per Session Progress, Team, Tire Compound",
+       subtitle = paste0(race_select, " ", "Qualifying, Drivers who made Q3 only"), 
+       x = "Laps Started",
+       y = "Lap Time") +
+  sec_lab_convert(axis = "y",
+                  start_sec = 80,
+                  end_sec = 90,
+                  int_sec = 0.5) +
+  facet_wrap(~fct_reorder(Team, -LapTime5),
+             nrow = 1) +
+  scale_color_manual(values = c("SOFT" = "RED",
+                                "MEDIUM" = "#e3a600")) +
+  theme_main() +
+  theme_main_add()
+
+```
+
+
+```{r}
+
+# recreate prediction df
+
+quali_gam_df %>%
+  # unnest(cols = preds_new) %>% View()
+  unpack_safely(col = "preds_new",
+                add_conf = TRUE,
+                data_to_keep = c("Driver", "TrackStatus")) %>% # View()
+  filter(raceName == race_select) %>%
+  ggplot(aes(x = lap_start_rownum, y = .fitted)) +
+  geom_point(data = quali_gam_df %>%
+               unpack_safely(col = "preds_obs",
+                             data_to_keep = c("Driver", "TrackStatus")) %>%
+               filter(raceName == race_select) %>%
+               filter(Compound == "SOFT"),
+             aes(x = lap_start_rownum, y = LapTime5,
+                 color = Driver)
+             ) +
+  geom_line(data = quali_gam_df %>%
+               unpack_safely(col = "preds_obs",
+                             data_to_keep = c("Driver", "TrackStatus")) %>%
+              filter(raceName == race_select) %>%
+               filter(Compound == "SOFT"),
+             aes(x = lap_start_rownum, y = LapTime5, color = Driver), alpha = 0.5) +
+  geom_line(color = "red") +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  labs(title = "Lap Time Predictions over Session Progress",
+       subtitle = paste0(race_select, " ", "Qualifying, Drivers who made Q3 only"),
+       x = "Laps Started",
+       y = "Lap Time") +
+  sec_lab_convert(axis = "y",
+                  start_sec = 80,
+                  end_sec = 90,
+                  int_sec = 0.5) +
+  facet_wrap(~fct_reorder(Team, -.fitted),
+             nrow = 1) +
+  theme_main() +
+  theme_main_add()
+
+```
+
+
+
+
+
+
+

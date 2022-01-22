@@ -3,6 +3,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 import fastf1 as ff1
 from fastf1 import plotting
+from time import sleep
 
 # set cache directory
 
@@ -25,41 +26,41 @@ def tdelt_to_sec2(x):
   return x
 
 
-# test scrape
-
-def get_lec_data():
-  
-  monza_quali = ff1.get_session(2019, 'Monza', 'Q')
-  
-  laps = monza_quali.load_laps(with_telemetry=True)
-  fast_leclerc = laps.pick_driver('LEC').pick_fastest()
-  lec_car_data = fast_leclerc.get_car_data()
-  
-  # convert timedeltas to seconds
-  
-  for col in lec_car_data.columns[lec_car_data.dtypes == 'timedelta64[ns]']:
-    
-    lec_car_data[col] = tdelt_to_sec2(lec_car_data[col])
-  
-  return lec_car_data
-
-# lec_car_data = get_lec_data()
-# lec_car_data['Time'] = tdelt_to_sec2(lec_car_data['Time'])
-
-# test ad hoc pull: Did Checo's tow make a difference?
-
-def get_max_ad_quali_2021():
-
-  ad_quali_2021 = ff1.get_session(2021, 'Abu Dhabi', 'Q')
-  ad_quali_2021_laps = ad_quali_2021.load_laps(with_telemetry=True)
-  
-  ad_quali_2021_laps_car33 = ad_quali_2021_laps.pick_driver('VER').get_telemetry()
-  
-  for col in ad_quali_2021_laps_car33.columns[ad_quali_2021_laps_car33.dtypes == 'timedelta64[ns]']:
-    
-    ad_quali_2021_laps_car33[col] = tdelt_to_sec2(ad_quali_2021_laps_car33[col])
-  
-  return ad_quali_2021_laps_car33
+# # test scrape
+# 
+# def get_lec_data():
+#   
+#   monza_quali = ff1.get_session(2019, 'Monza', 'Q')
+#   
+#   laps = monza_quali.load_laps(with_telemetry=True)
+#   fast_leclerc = laps.pick_driver('LEC').pick_fastest()
+#   lec_car_data = fast_leclerc.get_car_data()
+#   
+#   # convert timedeltas to seconds
+#   
+#   for col in lec_car_data.columns[lec_car_data.dtypes == 'timedelta64[ns]']:
+#     
+#     lec_car_data[col] = tdelt_to_sec2(lec_car_data[col])
+#   
+#   return lec_car_data
+# 
+# # lec_car_data = get_lec_data()
+# # lec_car_data['Time'] = tdelt_to_sec2(lec_car_data['Time'])
+# 
+# # test ad hoc pull: Did Checo's tow make a difference?
+# 
+# def get_max_ad_quali_2021():
+# 
+#   ad_quali_2021 = ff1.get_session(2021, 'Abu Dhabi', 'Q')
+#   ad_quali_2021_laps = ad_quali_2021.load_laps(with_telemetry=True)
+#   
+#   ad_quali_2021_laps_car33 = ad_quali_2021_laps.pick_driver('VER').get_telemetry()
+#   
+#   for col in ad_quali_2021_laps_car33.columns[ad_quali_2021_laps_car33.dtypes == 'timedelta64[ns]']:
+#     
+#     ad_quali_2021_laps_car33[col] = tdelt_to_sec2(ad_quali_2021_laps_car33[col])
+#   
+#   return ad_quali_2021_laps_car33
 
 
 # function that loads driver lookup
@@ -89,7 +90,7 @@ def get_driver_lookup(season, circuit, session):
   
   return session_laps_driver_list
 
-test_driver_lookup = get_driver_lookup('2021', 'Abu Dhabi', 'Q')
+# test_driver_lookup = get_driver_lookup('2021', 'Abu Dhabi', 'Q')ß
 
   
 
@@ -102,9 +103,13 @@ def get_driver_data(season, circuit, session, driver, data_type):
   
   """
   
-  # season = 2021
-  # circuit = 'Abu Dhabi'
+  # season = '2021'
+  # circuit = 'zandvoort'
   # session = 'Q'
+  # data_type = 'laps'
+  # 
+  
+  season = int(season)
   
   session_data = ff1.get_session(season, circuit, session)
   session_laps_data = session_data.load_laps(with_telemetry=True)
@@ -136,15 +141,55 @@ def get_driver_data(season, circuit, session, driver, data_type):
   # source this script then test this line
   
   # session_laps_car_data_copy = session_laps_car_data_copy.reset_index()
+  
+  session_laps_car_data_copy['season'] = season
+  session_laps_car_data_copy['raceName'] = circuit
+  session_laps_car_data_copy['session'] = session
+  
+  sleep(7)
     
   return session_laps_car_data_copy
 
+# python script works 
+
+# test_brazil = get_driver_data(season = '2021', circuit = 'interlagos', session = 'Q', driver = 'ALL', data_type='laps')
+
+# test_ndl = get_driver_data(season='2021', circuit='zandvoort', session='Q', driver='ALL', data_type='laps')
 
 # test_ver_laps = get_driver_data(season = '2021',
 #                                 circuit = 'Abu Dhabi',
 #                                 session = 'Q',
 #                                 driver = 'ALL',
 #                                 data_type = 'laps')
+
+
+def get_weekend_gp(season='2021') :
+  """
+  
+  """
+  
+  list_sessions = []
+  
+  # defaulting as this for now.. can improve if needed
+  
+  for i in range(1,23,1):
+  
+    list_sessions.append(ff1.core.ergast.fetch_weekend(season, i))
+    
+  circuit_df = pd.DataFrame(list_sessions)
+  
+  # unlist circuit_df:Circuit and Circuit:Location columns
+  
+  circuits = pd.DataFrame(circuit_df['Circuit'].tolist())
+  locations = pd.DataFrame(circuits['Location'].tolist())
+  
+  circuit_df = pd.concat([circuit_df, circuits, locations], axis = 1)
+  circuit_df = circuit_df.drop(['Circuit', 'Location', 'url'], axis = 1)
+  
+  return circuit_df
+
+# circuits_2021 = get_weekend_gp()
+
 
 
 def make_path(wname, wdate, sname, sdate):
