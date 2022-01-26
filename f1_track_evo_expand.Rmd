@@ -332,17 +332,17 @@ get_quali_reference_tbl <- function(tbl) {
            last_coal_LapStartTime_delta = (coal_LapStartTime - last_coal_LapStartTime),
            last_TrackStatus = lag(TrackStatus),
            session_break_flag_coal = ifelse(last_coal_LapStartTime_delta >= break_seconds, 1, 0), 
-           session_break_flag_coal2 = ifelse((last_coal_LapStartTime_delta >= break_seconds) & ((!(str_detect(TrackStatus, "5")) & lag_track_status_n1_score_r > 2)), 1, 0),
+           # session_break_flag_coal2 = ifelse((last_coal_LapStartTime_delta >= break_seconds) & ((!(str_detect(TrackStatus, "5")) & lag_track_status_n1_score_r > 2)), 1, 0), ## remove
            session_break_flag_coal_t = ifelse((last_coal_LapStartTime_delta >= break_seconds & !(str_detect(last_TrackStatus, "5") | lag_track_status_n1_score_r > 2)), 1, 0),
            # session_break_flag_coal2 = ifelse((last_coal_LapStartTime_delta >= break_seconds) & ((!str_detect(last_TrackStatus, "5"))), 1, 0)
            # session_break_flag_coal2 = ifelse((last_coal_LapStartTime_delta >= break_seconds) & ((!str_detect(last_TrackStatus, "5")) |  (!str_detect(TrackStatus, "5"))), 1, 0)
            ) %>%
     fill(session_break_flag_coal, .direction = "up") %>% # remove?
-    fill(session_break_flag_coal2, .direction = "up") %>%
-    fill(session_break_flag_coal_t, .direction = "up") %>% # remove
+    # fill(session_break_flag_coal2, .direction = "up") %>% ## remove
+    fill(session_break_flag_coal_t, .direction = "up") %>% # keep
     mutate(session_number_coal = as.factor(as.character((cumsum(session_break_flag_coal) + 1))),
-           session_number_coal2 = as.factor(as.character((cumsum(session_break_flag_coal2) + 1))),
-           session_number_coal_t = as.factor(as.character((cumsum(session_break_flag_coal_t) + 1))) # remove
+           # session_number_coal2 = as.factor(as.character((cumsum(session_break_flag_coal2) + 1))), ## remove
+           session_number_coal_t = as.factor(as.character((cumsum(session_break_flag_coal_t) + 1))) # keep
            ) %>%
     # dont think the below LapStartTime session breaks will be needed
     arrange(LapStartTime) %>% # this is important
@@ -364,6 +364,7 @@ get_quali_reference_tbl <- function(tbl) {
     mutate(session_ending_flag = replace_na(session_ending_flag, 0)) %>%
     arrange(coal_LapStartTime)
   
+  # 
     
   session_ending_coal_LapStartTime2 <- quali_reference_data %>%
     group_by(season, raceName, session_ending_flag) %>%
@@ -375,6 +376,8 @@ get_quali_reference_tbl <- function(tbl) {
   min_session_ending_coal_LapStartTime <- session_ending_coal_LapStartTime2 %>% 
     filter(session_ending_flag == 1) %>%
     pull(min_session_ending_coal_LapStartTime)
+  
+  # end: 
     
   
   quali_reference_data <- quali_reference_data %>%
@@ -384,7 +387,8 @@ get_quali_reference_tbl <- function(tbl) {
            TrackStatus, last_TrackStatus, lag_track_status_1_score_r, lag_track_status_n1_score_r,
            last_coal_LapStartTime, last_coal_LapStartTime_delta,
            track_status_1, track_status_n1, session_break_flag_coal,
-           session_number_coal, session_break_flag_coal2, session_number_coal2,
+           session_number_coal, #  session_break_flag_coal2,
+           # session_number_coal2,
            session_break_flag_coal_t, session_number_coal_t, session_ending_flag,
            session_number) %>%
   # remove debug logic here
@@ -515,7 +519,7 @@ hclust_exclude <- function(tbl, exclude = c("InLap_flag", "OutLap_flag")) {
   # create filtered data
   
   tbl_clust <- tbl %>%
-    filter(if_all(exclude_list, ~ . == "0")) %>%
+    filter(if_all(all_of(exclude_list), ~ . == "0")) %>%
     # working with this for now
     ## the final logic should be if any sector is abnormal, then the lap is excluded from hclust() 
     filter(scale_LapTime5_filtered <= 3) %>% # any laps > 3 std. devs from the subsetted mean are excluded from clustering
@@ -572,7 +576,7 @@ hclust_exclude <- function(tbl, exclude = c("InLap_flag", "OutLap_flag")) {
     filter(is.na(last_driver_compound_delta_pct) | last_driver_compound_delta_pct <= .01) %>%
     filter(is.na(scaled_Sector3Time) | scaled_Sector3Time < 3) %>%
     ungroup() %>%
-    mutate(hclust1_final = hclust) %>%
+    mutate(hclust1_final = hclust) %>% # think i can remove this
     select(Driver, LapNumber, hclust1_final)
   
   # joining hclust1 edit table back onto main tbl
@@ -595,7 +599,8 @@ compile_driver_data <- function(season='2021',
                                 circuit, 
                                 session = 'Q',
                                 driver = 'ALL',
-                                data_type = 'laps') {
+                                data_type = 'laps',
+                                cached_flag) {
   
   # season <- '2021'
   # circuit <- 'Styrian Grand Prix'
@@ -624,7 +629,8 @@ compile_driver_data <- function(season='2021',
                                    circuit,
                                    session,
                                    driver,
-                                   data_type) %>%
+                                   data_type,
+                                   cached_flag) %>%
       clean_lap_data()
     
     
@@ -655,119 +661,6 @@ compile_driver_data <- function(season='2021',
 ```
 
 
-
-```{r, eval=FALSE, include=FALSE}
-
-# convert initial script, then deprecate this 
-
-get_quali_reference <- function(season, circuit) {
-  
-  # pick up tomorrow: zandvoort only has 2 sessions.. where in here is that a problem? / why?
-  
-  # season = '2021'
-  # circuit = 'zandvoort'
-  # circuit = 'yas_marina'
-  # driver = 'ALL'
-
-  # breaks in between quali sessions are 300 seconds / 5 minutes
-  
-  break_seconds <- 300
-  
-  # load data
-  
-  # have 2 things to fix
-  # 1. need red flag detection logic (not critical for Abu Dhabi qualifying)
-  # 2. cases like after the red flag where Sainz started lap before LEC but LapStartTime doesnt show as such
-  ## fixed with coalesce logic for PitOutTime and LapStartTime: coal_LapStartTime
-
-  # note the assumptions below
-  ## session logic should work for Abu Dhabi, but will almost certainly need
-  ## ...to be generalized for other quali sessions, ex: those with red flags
-  ## ...lasting as much as the break_time (5 minutes) or more
-  
-  # circuit <- "imola"
-  
-  quali_reference_data <- get_driver_data(season = season,
-                                          circuit = circuit,
-                                          session = 'Q',
-                                          driver = 'ALL',
-                                          data_type = 'laps') %>%
-    filter(!(raceName == "Dutch Grand Prix" & Driver == "LAT" & LapNumber == 15)) %>% # problematic lap, getting towed to pits i think
-    filter(!(raceName == "Styrian Grand Prix" & Driver == "BOT" & LapNumber == 15)) %>%
-    mutate(Sector1Time_outlap = ifelse(!is.na(PitOutTime), (Sector2SessionTime-PitOutTime-Sector2Time), NA),
-           # LapStartTime alone should not be used for this logic
-           # use PitOutTime as LapStartTime for outlaps, LapStartTime for non-outlaps
-           coal_LapStartTime = coalesce(PitOutTime, LapStartTime)) %>%
-    arrange(coal_LapStartTime) %>% # this is important
-    # create rolling "scores" for track status? 
-    mutate(track_status_1 = dplyr::if_else(TrackStatus == "1", 1, 0),
-           track_status_n1 = dplyr::if_else(TrackStatus != "1", 1, 0),
-           # track_status_1_score_l = zoo::rollsum(track_status_1, k = 4, align = "left", fill = NA),
-           # track_status_1_score_r = zoo::rollsum(track_status_1, k = 4, align = "right", fill = NA),
-           # lag_track_status_1_score_r = zoo::rollsum(lag(track_status_1), k = 4, align = "right", fill = NA),
-           lead_track_status_1_score_l = zoo::rollsum(lead(track_status_1), k = 4, align = "left", fill = NA),
-           # track_status_1_score = lag_track_status_1_score_r + lead_track_status_1_score_l,
-           # lag_track_status_n1_score_r = zoo::rollsum(lag(track_status_n1), k = 4, align = "right", fill = NA),
-           lead_track_status_n1_score_l = zoo::rollsum(lead(track_status_n1), k = 4, align = "left", fill = NA)
-           # track_status_n1_score = lag_track_status_n1_score_r + lead_track_status_n1_score_l
-           ) %>%
-    mutate(last_coal_LapStartTime = lag(coal_LapStartTime),
-           last_coal_LapStartTime_delta = (coal_LapStartTime - last_coal_LapStartTime),
-           last_TrackStatus = lag(TrackStatus),
-           session_break_flag_coal = ifelse(last_coal_LapStartTime_delta >= break_seconds, 1, 0),
-           session_break_flag_coal2 = ifelse((last_coal_LapStartTime_delta >= break_seconds) & ((!str_detect(TrackStatus, "5"))), 1, 0)
-           # session_break_flag_coal2 = ifelse((last_coal_LapStartTime_delta >= break_seconds) & ((!str_detect(last_TrackStatus, "5"))), 1, 0)
-           # session_break_flag_coal2 = ifelse((last_coal_LapStartTime_delta >= break_seconds) & ((!str_detect(last_TrackStatus, "5")) |  (!str_detect(TrackStatus, "5"))), 1, 0)
-           ) %>%
-    fill(session_break_flag_coal, .direction = "up") %>%
-    fill(session_break_flag_coal2, .direction = "up") %>%
-    mutate(session_number_coal = as.factor(as.character((cumsum(session_break_flag_coal) + 1))),
-           session_number_coal2 = as.factor(as.character((cumsum(session_break_flag_coal2) + 1)))) %>%
-    # dont think the below LapStartTime session breaks will be needed
-    arrange(LapStartTime) %>% # this is important
-    mutate(last_LapStartTime = lag(LapStartTime),
-           last_LapStartTime_delta = (LapStartTime - last_LapStartTime),
-           # have to control here for cases where there may be > 5 min pause because of red flags (TrackStatus: 5)
-           # session_break_flag = ifelse((TrackStatus != "5" & last_LapStartTime_delta) >= break_seconds, 1, 0),
-           session_break_flag = ifelse(last_LapStartTime_delta >= break_seconds, 1, 0),
-           session_break_flag2 = session_break_flag) %>%
-    fill(session_break_flag2, .direction = "up") %>%
-    # look to moving session end logic here
-    
-    mutate(session_number = as.factor(as.character((cumsum(session_break_flag2) + 1)))) %>% # filter(Driver %in% c("SAI", "LEC", "GIO"))
-    select(-c(last_coal_LapStartTime, last_coal_LapStartTime_delta,
-              # session_break_flag_coal,
-              last_LapStartTime, last_LapStartTime_delta, 
-              session_break_flag, session_break_flag2)) %>% # removing all columns that were added
-    # if a red flag comes out with less than 2 minutes or so in a session, end the session
-    # if a PitOutTime occurrs with a yellow/red TrackStatus, still increment session
-    group_by(season, raceName, session_number_coal2) %>%
-    arrange(coal_LapStartTime) %>%
-    mutate(lead_coal_LapStartTime = lead(coal_LapStartTime),
-           delta_time_coal_LapStartTime = (lead_coal_LapStartTime - coal_LapStartTime),
-           approx_time_coal_LapStartTime = (cumsum(delta_time_coal_LapStartTime) / 60))
-    
-  # aggregate to impute quali session start times
-  
-  # quali_reference_agg <- quali_reference_data %>%
-  #   group_by(session_number) %>%
-  #   summarize(min_LapStartTime = min(LapStartTime),
-  #             max_LapStartTime = max(LapStartTime))
-  
-  quali_reference_agg_coal <- quali_reference_data %>%
-    group_by(session_number_coal2) %>%
-    summarize(min_coal_LapStartTime = min(coal_LapStartTime),
-              max_coal_LapStartTime = max(coal_LapStartTime),
-              max_RedFlag = max(ifelse(TrackStatus == "5", 1, 0))) %>%
-    ungroup()
-  
-  return(quali_reference_agg_coal)
-  
-}
-
-```
-
-
 ```{r}
 
 # pick up: debug this
@@ -792,6 +685,7 @@ wet_qualis_2021 <- c("Belgian Grand Prix",
 circuits_2021 <- get_weekend_gp(season = '2021') %>%
   # dplyr::filter(raceName == "Styrian Grand Prix") %>%
   dplyr::filter(!(raceName %in% wet_qualis_2021)) %>%
+  dplyr::filter(raceName == "Abu Dhabi Grand Prix") %>%
   # debug: problem qualis that needed manual lambda (Abu Dhabi control)
   # dplyr::filter(raceName %in% c("Bahrain Grand Prix",
   #                               "Monaco Grand Prix",
@@ -804,7 +698,8 @@ ad_compile_test_mult <- circuits_2021$raceName %>%
                                circuit = .x,
                                # session = NULL,
                                driver = 'ALL',
-                               data_type = 'laps')) # %>% View()
+                               data_type = 'laps',
+                               cached_flag = 'True'))
 
 ```
 
@@ -832,8 +727,8 @@ ad_compile_test_mult_cut <- ad_compile_test_mult %>% # View()
 # hline_race_selector <- "United States Grand Prix"
 # hline_race_selector <- "Austrian Grand Prix"
 hline_race_selector <- "Abu Dhabi Grand Prix"
-hline_race_selector <- "Bahrain Grand Prix"
-hline_race_selector <- "Hungarian Grand Prix"
+# hline_race_selector <- "Bahrain Grand Prix"
+# hline_race_selector <- "Hungarian Grand Prix"
 
 ad_compile_test_mult %>%
   
@@ -1601,20 +1496,13 @@ quali_gam_pred_agg %>%
   theme_main() + 
   theme_main_add()
 
+
+# final step: attempt to scale laps_start_rownum on a scale of 0-1 by raceName
+## note that this is for viz purposes only, and obviously wont be able to project that in realtime
+
 # scale laps to % session progress
 
 quali_gam_pred_agg %>%
-  # filter(raceName == "Hungarian Grand Prix") %>%
-  # filter(raceName == "Bahrain Grand Prix") %>%
-  
-  # filter(!(raceName %in% c("Bahrain Grand Prix",
-  #                          "Hungarian Grand Prix",
-  #                          "Monaco Grand Prix"))) %>%
-  
-  # filter(raceName %in% c("Abu Dhabi Grand Prix",
-  #                        "Austrian Grand Prix",
-  #                        "Styrian Grand Prix",
-  #                        "French Grand Prix")) %>%
   ggplot(aes(x = pct_raceName_laps, y = mean_pct_decrease_evo,
              color = raceName, group = raceName)) +
   geom_line(show.legend = FALSE) +
@@ -1639,10 +1527,6 @@ quali_gam_pred_agg %>%
   scale_y_reverse(labels = scales::percent_format(accuracy = 0.01)) +
   theme_main() + 
   theme_main_add()
-
-# final step: attempt to scale laps_start_rownum on a scale of 0-1 by raceName
-## note that this is for viz purposes only, and obviously wont be able to project that in realtime
-
 
 
 ```
