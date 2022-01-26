@@ -324,13 +324,10 @@ get_quali_reference_tbl <- function(tbl) {
     mutate(last_coal_LapStartTime = lag(coal_LapStartTime),
            last_coal_LapStartTime_delta = (coal_LapStartTime - last_coal_LapStartTime),
            last_TrackStatus = lag(TrackStatus),
-           session_break_flag_coal = ifelse(last_coal_LapStartTime_delta >= break_seconds, 1, 0), 
            session_break_flag_coal_t = ifelse((last_coal_LapStartTime_delta >= break_seconds & !(str_detect(last_TrackStatus, "5") | lag_track_status_n1_score_r > 2)), 1, 0)
            ) %>%
-    fill(session_break_flag_coal, .direction = "up") %>% # remove?
     fill(session_break_flag_coal_t, .direction = "up") %>% # keep
-    mutate(session_number_coal = as.factor(as.character((cumsum(session_break_flag_coal) + 1))),
-           session_number_coal_t = as.factor(as.character((cumsum(session_break_flag_coal_t) + 1))) # keep
+    mutate(session_number_coal_t = as.factor(as.character((cumsum(session_break_flag_coal_t) + 1))) # keep
            ) %>%
     # dont think the below LapStartTime session breaks will be needed
     arrange(LapStartTime) %>% # this is important
@@ -373,10 +370,9 @@ get_quali_reference_tbl <- function(tbl) {
            LapTime5, coal_LapStartTime,
            TrackStatus, last_TrackStatus, lag_track_status_1_score_r, lag_track_status_n1_score_r,
            last_coal_LapStartTime, last_coal_LapStartTime_delta,
-           track_status_1, track_status_n1, session_break_flag_coal,
-           session_number_coal,
-           session_break_flag_coal_t, session_number_coal_t, session_ending_flag,
-           session_number) %>%
+           track_status_1, track_status_n1,
+           session_break_flag_coal_t, session_number_coal_t,
+           session_ending_flag,session_number) %>%
   # remove debug logic here
     
     # session ending red flag logic (test case: France, MSC, LapNumber 7)
