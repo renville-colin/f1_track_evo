@@ -318,15 +318,8 @@ get_quali_reference_tbl <- function(tbl) {
     # create rolling "scores" for track status? 
     mutate(track_status_1 = dplyr::if_else(TrackStatus == "1", 1, 0),
            track_status_n1 = dplyr::if_else(TrackStatus != "1", 1, 0),
-           # track_status_n1 = dplyr::if_else(TrackStatus != "1" | TrackStatus != "2", 1, 0), # attempting to capture red flags, nope
-           # track_status_1_score_l = zoo::rollsum(track_status_1, k = 4, align = "left", fill = NA),
-           # track_status_1_score_r = zoo::rollsum(track_status_1, k = 4, align = "right", fill = NA),
            lag_track_status_1_score_r = zoo::rollsum(lag(track_status_1), k = 4, align = "right", fill = NA),
-           # lead_track_status_1_score_l = zoo::rollsum(lead(track_status_1), k = 4, align = "left", fill = NA),
-           # track_status_1_score = lag_track_status_1_score_r + lead_track_status_1_score_l,
-           lag_track_status_n1_score_r = zoo::rollsum(lag(track_status_n1), k = 4, align = "right", fill = NA),
-           # lead_track_status_n1_score_l = zoo::rollsum(lead(track_status_n1), k = 4, align = "left", fill = NA)
-           # track_status_n1_score = lag_track_status_n1_score_r + lead_track_status_n1_score_l
+           lag_track_status_n1_score_r = zoo::rollsum(lag(track_status_n1), k = 4, align = "right", fill = NA)
            ) %>%
     mutate(last_coal_LapStartTime = lag(coal_LapStartTime),
            last_coal_LapStartTime_delta = (coal_LapStartTime - last_coal_LapStartTime),
@@ -685,7 +678,7 @@ wet_qualis_2021 <- c("Belgian Grand Prix",
 circuits_2021 <- get_weekend_gp(season = '2021') %>%
   # dplyr::filter(raceName == "Styrian Grand Prix") %>%
   dplyr::filter(!(raceName %in% wet_qualis_2021)) %>%
-  dplyr::filter(raceName == "Abu Dhabi Grand Prix") %>%
+  # dplyr::filter(raceName == "Abu Dhabi Grand Prix") %>%
   # debug: problem qualis that needed manual lambda (Abu Dhabi control)
   # dplyr::filter(raceName %in% c("Bahrain Grand Prix",
   #                               "Monaco Grand Prix",
@@ -1519,7 +1512,7 @@ quali_gam_pred_agg %>%
   labs(title = "Average Decrease in Lap Times per Qualifying Session",
        subtitle = "Portugal saw the least relative improvements in overall lap times, while Mexico City, Italy, and Monaco saw the most",
          x = "Qualifying Progress",
-       y = "% Decrease in Lap Times (Average)",
+       y = "Average Decrease in Lap Times",
        color = "Race") +
   coord_cartesian(xlim = c(0,1.15)) +
   scale_x_continuous(labels = scales::percent_format(accuracy = 1),
