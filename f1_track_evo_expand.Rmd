@@ -58,11 +58,15 @@ if (!require(ggrepel)) {
 
 source('~/Documents/Projects/tools/theme_main.R')
 
+# loading in helper functions
+
+source('~/Documents/Projects/ExploreF1/helper_functions_track_evo.R')
+
 ```
 
 
   
-```{r}
+```{r, message=FALSE, warning=FALSE, echo=FALSE, eval=FALSE}
 
 theme_main_add <- function() {
   
@@ -88,7 +92,6 @@ theme_main_add <- function() {
 
 Sys.setenv(RETICULATE_PYTHON = "/Users/colinrenville/.pyenv/versions/3.9.9/bin/python3.9")
 
-
 ```
 
 ```{r}
@@ -109,13 +112,13 @@ Generalize functions to accomodate all (non-sprint) qualifying sessions in 2021
 
 clean_lap_data <- function(tbl) {
   
+  # debug
   # tbl <- get_driver_data(season = '2021',
   #                        # circuit = 'Abu Dhabi',
   #                        circuit = 'americas',
   #                        session = 'Q',
   #                        driver = 'ALL',
   #                        data_type = 'laps')
-  
   # tbl <- lap_data_raw
   
   lap_clean_df <- tbl %>%
@@ -124,17 +127,10 @@ clean_lap_data <- function(tbl) {
     group_by(Driver) %>%
     mutate(Compound = factor(Compound, levels = c("SOFT", "MEDIUM", "HARD")),
            LapTime_per = seconds_to_period(LapTime),
-           # Sector1Time2 = (Sector2SessionTime - LapStartTime),
            next_lap_StartTime = lead(LapStartTime),
            Sector1SessionTime2 = (next_lap_StartTime - (Sector2Time + Sector3Time)),
-           # Sector1Time2 = ((next_lap_StartTime - LapStartTime) - (Sector2Time + Sector3Time)),
            Sector1Time3 = (next_lap_StartTime - PitOutTime - Sector2Time - Sector3Time),
-           # Sector3Time_test = Sector3Time,
            Sector3Time2 = (PitInTime - Sector2SessionTime),
-           # getting closer, need to fix still 
-           # LapTime2 = (Sector1Time2 + Sector2Time + Sector3Time),
-           # test_times = (Sector1SessionTime - LapStartTime),
-           # LapTime3 = coalesce(LapTime,(Sector1Time3 + Sector2Time + Sector3Time)),
            LapTime4 = coalesce(LapTime,
                                (Sector1Time + Sector2Time + Sector3Time),
                                (Sector1Time3 + Sector2Time + Sector3Time)),
@@ -152,12 +148,7 @@ clean_lap_data <- function(tbl) {
     ungroup() %>%
     group_by(season, raceName) %>%
     mutate(lap_start_rownum = (dplyr::row_number(coal_LapStartTime) - 1),
-           scale_LapTime5 = scale(LapTime5),
-           # this isnt doing what i thought it would
-           ## future, has to be a way to do this inline
-           # scale_LapTime5_hclust = ifelse(InLap_flag == 0 & OutLap_flag == 0,
-           #                                scale(LapTime5[InLap_flag == 0 & OutLap_flag == 0]), NA)
-           ) %>%
+           scale_LapTime5 = scale(LapTime5)) %>%
     ungroup()
   
   # editing below... 
@@ -187,31 +178,6 @@ clean_lap_data <- function(tbl) {
   
 }
 
-
-# function to convert seconds to period type
-
-sec_lab_convert <- function(axis = "y", start_sec=0, end_sec=20000, int_sec=20) {
-  
-  seconds_lookup <- data.frame(seconds_list = seq(seconds(start_sec),
-                                                  seconds(end_sec),
-                                                  by = seconds(int_sec)))
-  
-  seconds_lookup <- seconds_lookup %>%
-    mutate(seconds_period = seconds_to_period(seconds_list))
-  
-  if (tolower(axis) == "y") {
-   
-    scale_y_continuous(breaks = seconds_lookup$seconds_list,
-                       labels = seconds_lookup$seconds_period)
-    
-  } else if (tolower(axis) == "x") {
-    
-    scale_x_continuous(breaks = seconds_lookup$seconds_list,
-                       labels = seconds_lookup$seconds_period)
-    
-  }
-  
-}
 
 # for quali sessions, will need to establish a reference table for session number
 ## Q1 if lap before Q2, Q2 if lap started after Q1 and before Q3, .etc
@@ -332,14 +298,8 @@ get_quali_reference_tbl <- function(tbl) {
     # dont think the below LapStartTime session breaks will be needed
     arrange(LapStartTime) %>% # this is important
     mutate(last_LapStartTime = lag(LapStartTime),
-           last_LapStartTime_delta = (LapStartTime - last_LapStartTime),
-           # have to control here for cases where there may be > 5 min pause because of red flags (TrackStatus: 5)
-           session_break_flag = ifelse(last_LapStartTime_delta >= break_seconds, 1, 0),
-           session_break_flag2 = session_break_flag) %>%
-    fill(session_break_flag2, .direction = "up") %>%
+           last_LapStartTime_delta = (LapStartTime - last_LapStartTime)) %>%
     # look to moving session end logic here
-    
-    mutate(session_number = as.factor(as.character((cumsum(session_break_flag2) + 1)))) %>% # filter(Driver %in% c("SAI", "LEC", "GIO"))
     # session ending red flag logic (test case: France, MSC, LapNumber 7)
     left_join(session_ending_rf, by = c("season" = "season",
                                         "raceName" = "raceName",
@@ -372,7 +332,7 @@ get_quali_reference_tbl <- function(tbl) {
            last_coal_LapStartTime, last_coal_LapStartTime_delta,
            track_status_1, track_status_n1,
            session_break_flag_coal_t, session_number_coal_t,
-           session_ending_flag,session_number) %>%
+           session_ending_flag) %>%
   # remove debug logic here
     
     # session ending red flag logic (test case: France, MSC, LapNumber 7)
@@ -760,7 +720,7 @@ Problem case(s):
 
   - Explain why here
 
-```{r}
+```{r, fig.align='center', fig.height=5.5, fig.width=10, warning=FALSE, message=FALSE}
 
 hline_race_selector <- "Monaco Grand Prix"
 
@@ -804,7 +764,7 @@ ad_compile_test_mult %>%
 
   - Explain why here
 
-```{r}
+```{r, fig.align='center', fig.height=5.5, fig.width=10, warning=FALSE, message=FALSE}
 
 hline_race_selector <- "Portuguese Grand Prix"
 
@@ -844,7 +804,7 @@ ad_compile_test_mult %>%
 ```
 
 
-```{r}
+```{r, fig.align='center', fig.height=5.5, fig.width=10, warning=FALSE, message=FALSE}
 
 # override of monaco and portugal hclust
 ## not putting in hclust_exclude(), can if needed.. 
@@ -937,10 +897,8 @@ ad_compile_test_mult %>%
 
 - Russia
 
-- Turkey(?).. looks debateable, but track definitely started wet
-
-
-
+- Turkey
+  - Had some dry running, but track definitely started wet
 
 
 
@@ -950,21 +908,6 @@ Point: better to only have to manually override 2(?) sessions than 23.
 ## Expand GAM to all Grand Prixs (besides monaco and portugal at first?)
 
 Create function for GAM model
-
-```{r, eval=FALSE}
-
-# scrap
-
-# why are there 4 sessions for imola
-# why are there only 2 sessions for zandvoort
-
-ad_compile_test_mult %>%
-  # filter(raceName == "Emilia Romagna Grand Prix") %>%
-  filter(raceName == "Dutch Grand Prix") %>%
-  arrange(coal_LapStartTime) %>%
-  View()
-
-```
 
 
 ```{r}
@@ -1250,7 +1193,7 @@ unpack_safely <- function(tbl, col, data_to_keep=NULL, add_conf = FALSE) {
 
 #### Observed
 
-```{r}
+```{r, fig.align='center', fig.height=5.5, fig.width=10, warning=FALSE, message=FALSE}
 
 # smoothed line over actual lap times
 
@@ -1287,7 +1230,7 @@ quali_gam_df %>%
 
 #### Predicted
 
-```{r}
+```{r, fig.align='center', fig.height=5.5, fig.width=10, warning=FALSE, message=FALSE}
 
 # recreate prediction df
 
@@ -1336,7 +1279,7 @@ All is good, but will need to be able to plot for qualis with only one compound 
 
 ```{r}
 
-gp_select <- "Qatar Grand Prix"
+# gp_select <- "Qatar Grand Prix"
 # gp_select <- "São Paulo Grand Prix"
 # gp_select <- "Dutch Grand Prix"
 # gp_select <- "United States Grand Prix"
@@ -1344,11 +1287,13 @@ gp_select <- "Qatar Grand Prix"
 # gp_select <- "Styrian Grand Prix"
 
 # problem cases, looking better now
-gp_select <- "Bahrain Grand Prix"    # lambda looks way too low for the data
+# gp_select <- "Bahrain Grand Prix"    # lambda looks way too low for the data
 # gp_select <- "Hungarian Grand Prix"  # same, manually lower?
 
-# gp_select <- "Monaco Grand Prix"
+gp_select <- "Monaco Grand Prix"
 # gp_select <- "Portuguese Grand Prix"
+# gp_select <- "Mexico City Grand Prix"
+# gp_select <- "Abu Dhabi Grand Prix"
 
 # smoothed line over actual lap times
   
@@ -1379,7 +1324,7 @@ quali_gam_df %>%
 ```
 
 
-```{r}
+```{r, fig.align='center', fig.height=5.5, fig.width=10, warning=FALSE, message=FALSE}
 
 # recreate prediction df
 ## the lines kind of ruin the interpretation of the gam model
@@ -1449,6 +1394,13 @@ quali_gam_pred_agg <- quali_gam_df %>%
          pct_raceName_laps = (lap_start_rownum / raceName_last_laps_start_rownum)) %>%
   ungroup()
 
+
+```
+
+
+```{r, eval=FALSE, echo=FALSE, message=FALSE}
+
+
 # plot: average predicted decrease in laptime / team : relative to start
 
 quali_gam_pred_agg %>%
@@ -1476,6 +1428,12 @@ quali_gam_pred_agg %>%
   theme_main() + 
   theme_main_add()
 
+```
+
+
+Point: the exact values can and should be questioned, but there are legitimate reasons why Portugal has the least lap time improvements and Mexico City had the most
+
+```{r, fig.align='center', fig.height=5.5, fig.width=10, warning=FALSE, message=FALSE}
 
 # final step: attempt to scale laps_start_rownum on a scale of 0-1 by raceName
 ## note that this is for viz purposes only, and obviously wont be able to project that in realtime

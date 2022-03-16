@@ -9,60 +9,6 @@ from time import sleep
 
 ff1.Cache.enable_cache('/Users/colinrenville/Documents/Projects/ExploreF1/cache')
 
-
-# will need function to convert all timedelta datatypes to seconds
-
-def tdelt_to_sec(df):
-  
-  for col in df.columns[df.dtypes == 'timedelta64[ns]']:
-    df[col].dt.total_seconds()
-
-  return df
-
-def tdelt_to_sec2(x):
-  
-  x = x.dt.total_seconds()
-      
-  return x
-
-
-# # test scrape
-# 
-# def get_lec_data():
-#   
-#   monza_quali = ff1.get_session(2019, 'Monza', 'Q')
-#   
-#   laps = monza_quali.load_laps(with_telemetry=True)
-#   fast_leclerc = laps.pick_driver('LEC').pick_fastest()
-#   lec_car_data = fast_leclerc.get_car_data()
-#   
-#   # convert timedeltas to seconds
-#   
-#   for col in lec_car_data.columns[lec_car_data.dtypes == 'timedelta64[ns]']:
-#     
-#     lec_car_data[col] = tdelt_to_sec2(lec_car_data[col])
-#   
-#   return lec_car_data
-# 
-# # lec_car_data = get_lec_data()
-# # lec_car_data['Time'] = tdelt_to_sec2(lec_car_data['Time'])
-# 
-# # test ad hoc pull: Did Checo's tow make a difference?
-# 
-# def get_max_ad_quali_2021():
-# 
-#   ad_quali_2021 = ff1.get_session(2021, 'Abu Dhabi', 'Q')
-#   ad_quali_2021_laps = ad_quali_2021.load_laps(with_telemetry=True)
-#   
-#   ad_quali_2021_laps_car33 = ad_quali_2021_laps.pick_driver('VER').get_telemetry()
-#   
-#   for col in ad_quali_2021_laps_car33.columns[ad_quali_2021_laps_car33.dtypes == 'timedelta64[ns]']:
-#     
-#     ad_quali_2021_laps_car33[col] = tdelt_to_sec2(ad_quali_2021_laps_car33[col])
-#   
-#   return ad_quali_2021_laps_car33
-
-
 # function that loads driver lookup
 # this will be needed for telemetry data
 
@@ -90,7 +36,7 @@ def get_driver_lookup(season, circuit, session):
   
   return session_laps_driver_list
 
-# test_driver_lookup = get_driver_lookup('2021', 'Abu Dhabi', 'Q')ß
+# test_driver_lookup = get_driver_lookup('2021', 'Abu Dhabi', 'Q')
 
   
 
@@ -98,16 +44,16 @@ def get_driver_lookup(season, circuit, session):
 # car_data() and pos_data() are the truth, telemetry is imputed
 ## start with telemetry then correct where needed
 
-def get_driver_data(season, circuit, session, driver, data_type):
+def get_driver_data(season, circuit, session, driver, data_type, cached_flag='False'):
   """
   
   """
   
   # season = '2021'
-  # circuit = 'zandvoort'
+  # # circuit = 'zandvoort'
+  # circuit = 'Austrian Grand Prix'
   # session = 'Q'
   # data_type = 'laps'
-  # 
   
   season = int(season)
   
@@ -146,7 +92,11 @@ def get_driver_data(season, circuit, session, driver, data_type):
   session_laps_car_data_copy['raceName'] = circuit
   session_laps_car_data_copy['session'] = session
   
-  sleep(7)
+  # pause the function after each scrape to not spam
+  
+  if cached_flag == 'False' :
+    
+    sleep(7)
     
   return session_laps_car_data_copy
 
@@ -190,23 +140,4 @@ def get_weekend_gp(season='2021') :
 
 # circuits_2021 = get_weekend_gp()
 
-
-
-def make_path(wname, wdate, sname, sdate):
-  """Create the api path base string to append on livetiming.formula1.com for api
-    requests.
-    The api path base string changes for every session only.
-    Args:
-        wname: Weekend name (e.g. 'Italian Grand Prix')
-        wdate: Weekend date (e.g. '2019-09-08')
-        sname: Session name 'Qualifying' or 'Race'
-        sdate: Session date (formatted as wdate)
-    Returns:
-        relative url path
-    """
-
-  smooth_operator = f'{wdate[:4]}/{wdate} {wname}/{sdate} {sname}/'
-  return '/static/' + smooth_operator.replace(' ', '_')
-
-make_path(wname='Italian Grand Prix', wdate='2019-09-08', sname='Qualifying',sdate='2019-09-08')
 

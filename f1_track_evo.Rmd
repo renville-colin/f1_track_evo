@@ -91,7 +91,7 @@ reticulate::source_python("ExploreF1_data_pull.py")
 
 ```
 
-```{r}
+```{r, eval=FALSE, echo=FALSE}
 
 max_ad_quali_2021 <- get_max_ad_quali_2021()
 
@@ -325,7 +325,8 @@ get_quali_reference <- function(season, circuit) {
   
   quali_reference_agg_coal <- quali_reference_data %>%
     group_by(session_number_coal) %>%
-    summarize(min_coal_LapStartTime = min(coal_LapStartTime),
+    summarize(dis_Drivers = n_distinct(Driver),
+              min_coal_LapStartTime = min(coal_LapStartTime),
               max_coal_LapStartTime = max(coal_LapStartTime),
               max_RedFlag = max(ifelse(TrackStatus == "5", 1, 0)))
   
@@ -334,7 +335,7 @@ get_quali_reference <- function(season, circuit) {
 }
 
 
-hclust_exclude <- function(tbl, exclude) {
+hclust_exclude <- function(tbl, exclude = c("InLap_flag", "OutLap_flag")) {
   
   # need a function that passes conditions to pass prior to training hclust model
   
@@ -405,6 +406,23 @@ ad_quali_2021_l <- get_driver_data(season = '2021',
   # filter(!(TrackStatus == "5" & is.na(LapTime5))) %>% # no evidence that STR lap 7 exists on video
   hclust_exclude(exclude = c("InLap_flag", "OutLap_flag")) # adding conditional clustering here
 
+
+```
+
+
+```{r}
+
+ad_quali_2021_l %>%
+  ggplot(aes(x = lap_start_rownum, y = LapTime5)) +
+  geom_point() +
+  labs(title = "Abu Dhabi 2021 Qualifying, all laps from raw data",
+       subtitle = "Plotting the entire dataset shows we have fast laps and slow laps",
+       x = "Laps",
+       y = "Lap Time") +
+  scale_x_continuous() +
+  sec_lab_convert(axis = "y") +
+  theme_main() +
+  theme_main_add()
 
 ```
 
