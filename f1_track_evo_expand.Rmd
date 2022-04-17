@@ -667,9 +667,10 @@ ad_compile_test_mult_cut <- ad_compile_test_mult %>% # View()
 
 # hline_race_selector <- "United States Grand Prix"
 # hline_race_selector <- "Austrian Grand Prix"
-hline_race_selector <- "Abu Dhabi Grand Prix"
+# hline_race_selector <- "Abu Dhabi Grand Prix"
 # hline_race_selector <- "Bahrain Grand Prix"
 # hline_race_selector <- "Hungarian Grand Prix"
+hline_race_selector <- "Saudi Arabian Grand Prix"
 
 ad_compile_test_mult %>%
   
@@ -722,7 +723,8 @@ Problem case(s):
 
 ```{r, fig.align='center', fig.height=5.5, fig.width=10, warning=FALSE, message=FALSE}
 
-hline_race_selector <- "Monaco Grand Prix"
+# hline_race_selector <- "Monaco Grand Prix"
+hline_race_selector <- "Saudi Arabian Grand Prix"
 
 ad_compile_test_mult %>%
   filter(raceName == hline_race_selector) %>%
@@ -745,10 +747,16 @@ ad_compile_test_mult %>%
                  group = raceName,
                  color = "Attempted cutoff"),
                  linetype = "dashed") +
-  geom_hline(aes(yintercept = ifelse(!is.na(hclust), 74, NA),
-                 group = raceName,
-                 color = "Override cutoff"),
-             linetype = "dashed") +
+  # monaco cut off
+  # geom_hline(aes(yintercept = ifelse(!is.na(hclust), 74, NA),
+  #                group = raceName,
+  #                color = "Override cutoff"),
+  #            linetype = "dashed") +
+  # saudi arabia cut off 
+  geom_hline(aes(yintercept = ifelse(!is.na(hclust), 93, NA),
+               group = raceName,
+               color = "Override cutoff"),
+           linetype = "dashed") +
   coord_cartesian(ylim = c(60,115)) +
   sec_lab_convert(axis = "y",
                   int_sec = 10) +
@@ -810,7 +818,11 @@ ad_compile_test_mult %>%
 ## not putting in hclust_exclude(), can if needed.. 
 
 ad_compile_test_mult <- ad_compile_test_mult %>%
-  mutate(hclust = case_when((raceName == "Monaco Grand Prix" & hclust == 1 & LapTime5 > 74) | (raceName == "Portuguese Grand Prix" & hclust == 1 & LapTime > 85.5) ~ "2",
+  mutate(hclust = case_when((raceName == "Monaco Grand Prix" & hclust == 1 & LapTime5 > 74) |
+                              (raceName == "Portuguese Grand Prix" & hclust == 1 & LapTime5 > 85.5) |
+                              (raceName ==  "Saudi Arabian Grand Prix" & hclust == 1 & LapTime5 > 93) ~ "2",
+                            (raceName == "Saudi Arabian Grand Prix" & hclust == 2 & LapTime <= 93) ~ "1",
+                            # (raceName == "Saudi Arabian Grand Prix" & hclust == 1 & LapTime > 93) ~ "2",
                             TRUE ~ as.character(hclust))
          )
 
@@ -885,6 +897,47 @@ ad_compile_test_mult %>%
                                "2" = "#ab511d")) +
   theme_main() +
   theme_main_add()
+
+
+# saudi fix
+
+# portugal fix
+
+hline_race_selector <- "Saudi Arabian Grand Prix"
+
+ad_compile_test_mult %>%
+  filter(raceName == hline_race_selector) %>%
+  ggplot(aes(y = LapTime5, fill = hclust)) +
+  geom_histogram(bins = 100,
+                 color = "black",
+                 show.legend = FALSE) +
+  labs(title = "Portugal 2021 Qualifying Lap Times by Grand Prix and Cluster",
+       subtitle = ".. and Saudi Arabia",
+       x = "Ct. Laps",
+       y = "Lap Time",
+       caption = "Data: FastF1",
+       color = "") +
+  facet_wrap(raceName~hclust,
+             scales = "free_x",
+             nrow = 1) +
+  geom_hline(aes(yintercept = ifelse(!is.na(hclust), ad_compile_test_mult_cut %>%
+                                                        filter(raceName == hline_race_selector) %>%
+                                                        pull(hline_val), NA),
+                 group = raceName,
+                 color = "Attempted cutoff"),
+                 linetype = "dashed") +
+  geom_hline(aes(yintercept = ifelse(!is.na(hclust), 93, NA),
+                 group = raceName,
+                 color = "Override cutoff"),
+             linetype = "dashed") +
+  coord_cartesian(ylim = c(80,170)) +
+  sec_lab_convert(axis = "y",
+                  int_sec = 10) +
+  scale_fill_manual(values = c("1" = "#7a00f5",
+                               "2" = "#ab511d")) +
+  theme_main() +
+  theme_main_add()
+
 
 ```
 
@@ -1295,6 +1348,8 @@ gp_select <- "Monaco Grand Prix"
 # gp_select <- "Mexico City Grand Prix"
 # gp_select <- "Abu Dhabi Grand Prix"
 
+# gp_select <- "Saudi Arabian Grand Prix"
+
 # smoothed line over actual lap times
   
 quali_gam_df %>%
@@ -1438,7 +1493,7 @@ Point: the exact values can and should be questioned, but there are legitimate r
 # final step: attempt to scale laps_start_rownum on a scale of 0-1 by raceName
 ## note that this is for viz purposes only, and obviously wont be able to project that in realtime
 
-# scale laps to % session progress
+# scale laps to % session progressxxxxxxxxxxx
 
 quali_gam_pred_agg %>%
   ggplot(aes(x = pct_raceName_laps, y = mean_pct_decrease_evo,
