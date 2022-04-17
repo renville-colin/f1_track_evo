@@ -138,6 +138,27 @@ def get_weekend_gp(season='2021') :
   
   return circuit_df
 
-# circuits_2021 = get_weekend_gp()
+circuits_2021 = get_weekend_gp()
 
+test_weekend1 = ff1.core.ergast.fetch_weekend('2021', 3)
+test_weekend2 = ff1.core.ergast.fetch_weekend('2021', 6)
+test_weekend3 = ff1.core.ergast.fetch_weekend('2021', 13)
+
+def make_path(wname, wdate, sname, sdate):
+  """Create the api path base string to append on livetiming.formula1.com for api
+    requests.
+    The api path base string changes for every session only.
+    Args:
+        wname: Weekend name (e.g. 'Italian Grand Prix')
+        wdate: Weekend date (e.g. '2019-09-08')
+        sname: Session name 'Qualifying' or 'Race'
+        sdate: Session date (formatted as wdate)
+    Returns:
+        relative url path
+    """
+
+  smooth_operator = f'{wdate[:4]}/{wdate} {wname}/{sdate} {sname}/'
+  return '/static/' + smooth_operator.replace(' ', '_')
+
+make_path(wname='Italian Grand Prix', wdate='2019-09-08', sname='Qualifying',sdate='2019-09-08')
 
