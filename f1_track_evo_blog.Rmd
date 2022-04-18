@@ -2168,7 +2168,7 @@ quali_gam_pred_agg %>%
                             filter(pct_raceName_laps == 1) %>%
                             select(raceName, mean_pct_decrease_evo, pct_raceName_laps),
                    alpha = 0.8,
-                   size = 3,
+                   size = 2,
                    # nudge_x = 1.7,
                    xlim = c(1,1.6),
                    show.legend = FALSE) +
