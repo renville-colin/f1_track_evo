@@ -287,12 +287,13 @@ ad_quali_2021_l <- get_driver_data(season = '2021',
 
 </br>
 
-So let's take a look at 5 rows the data we just loaded in to get a sense of what we're working with..
+So let's take a look at 5 rows of laps from Lewis Hamilton in the data we just loaded in to get a sense of what we're working with..
 
 
 ```{r}
 
 ad_quali_2021_l %>%
+  dplyr::filter(DriverNumber == "44") %>%
   head() %>%
   kbl()
 
@@ -410,6 +411,7 @@ ad_quali_2021_l %>%
            Sector1Time, Sector2Time, Sector3Time, LapTime,
            LapTime5) %>%
   filter(Driver == "HAM" & LapNumber == 17) %>%
+  as.data.frame() %>%
   kbl() %>%
   kable_styling(position = "center")
   
@@ -463,6 +465,7 @@ ad_quali_2021_l %>%
          LapTime5) %>%
     filter(if_any(all_of(selected_lap_vars), is.na)) %>%
   filter(Driver == "NOR" & LapNumber == 5) %>%
+  as.data.frame() %>%
   kbl() %>%
   kable_styling(position = "center") # will need to trial and error this one once uploaded to blog
 
@@ -485,6 +488,7 @@ ad_quali_2021_l %>%
          LapTime5) %>%
     filter(if_any(all_of(selected_lap_vars), is.na)) %>%
   filter(Driver == "BOT" & LapNumber == 12) %>%
+  as.data.frame() %>%
   kbl() %>%
   kable_styling(position = "center") # will need to trial and error this one once uploaded to blog
 
@@ -519,10 +523,6 @@ ad_quali_2021_l %>%
 
 ```
 
-- session break logic here
-
-- need to add code to "detect" and create session number
-  - if gap between laps is > 5 minutes, then flag for a new session and cumulative increment session numebr
 
 <br/>
 
@@ -608,6 +608,7 @@ quali_reference_agg_coal %>%
          "min_Session_LapStartTime" = "min_coal_LapStartTime",
          "max_Session_LapStartTime" = "max_coal_LapStartTime",
          "RedFlag" = "max_RedFlag") %>%
+  as.data.frame() %>%
   kbl() %>%
   kable_styling(position = "center")
 
@@ -696,8 +697,9 @@ What we see here is the effect of drivers taking their slow laps versus their fa
 
 Since we are looking to purely look to measure how much faster *Fast* Laps are getting throughout qualifying sessions, we need to design a way to efficiently predict to a reasonably-accurate degree if a lap as a Fast Lap or a Slow Lap. Consistent with the session number work above, the dataset we are using does not tell us if a driver is on a Fast Lap or not. This interpretation between Fast and Slow laps is also something that can be subjective, which I will detail later on. 
 
+<br/>
 
-### Clustering
+## Clustering
 
 In order to lay the groundwork for my idea on predicting a Fast Lap vs. a Slow lap, let's look at a specific set of laps by Max Verstappen. This set of four laps was a stint from Verstappen's qualifying to begin Q2. Recalling our derived variable for lap times, LapTime5, we can see that the data shows a slow Out Lap, a fast lap, a slow lap, and the sting ends with a slow, In Lap. They key note here is the definite separation between Verstappen's fast lap at 83.189 seconds that are all over 100 seconds. Assuming that there is this kind of separation in time between most slow laps and fast laps, we should be able to predict for these using the right tools. 
 
@@ -715,6 +717,7 @@ ad_VER_focus_laps <- ad_quali_2021_l %>%
 
 
 ad_VER_focus_laps %>%
+  as.data.frame() %>%
   kbl() %>%
   kable_styling(position = "center") # will need to trial and error this one once uploaded to blog
 
@@ -858,15 +861,12 @@ ad_quali_2021_l_clust <- ad_quali_2021_l %>%
 
 Then we use the **hclust()** function to create our hierarchical clustering model based off of LapTime5 only, and additionally designate this as a single-linkage model by using the *method = "single"* argument. We specify the number of clusters that we want to create with *cutree(2)*, one cluster for fast laps and one for slow laps. In our data, our clusters are stored in a variable named: *hclust*. In the last part of the code below, we join our cluster variable to our main dataset of Abu Dhabi qualifying laps - ad_quali_2021_l - that we've been working with for most of this project so far. 
 
-<br/>
-
 From here on:
 
   - Cluster 1 will be our fast laps
   - Cluster 2 will be our slow laps
   - Cluster NA will be laps that were either In Laps, Out Laps, or laps aborted in sector 3
   
-<br/>
 
 ```{r}
   
@@ -901,6 +901,7 @@ ad_VER_focus_laps <- ad_quali_2021_l %>%
 
 
 ad_VER_focus_laps %>%
+  as.data.frame() %>%
   kbl() %>%
   kable_styling(position = "center") # will need to trial and error this one once uploaded to blog
 
@@ -994,7 +995,7 @@ ad_quali_2021_l %>%
 
 <br/>
 
-So let's think about this, we've now gotten to a point where we can look at **only** the fast laps from a qualifying session. Theoretically, if we were to begin an analysis now, we would almost certainly still see a decrease in overall lap times as the session progressed - but there is one variable still to account for: Car Strength.
+So let's think about this, we've now gotten to a point where we can look at **only** the fast laps from a qualifying session. Theoretically, if we were to begin an analysis now, we would almost certainly still see a decrease in overall lap times as the session progressed -     there is one variable still to account for: Car Strength.
 
 <br/>
 
